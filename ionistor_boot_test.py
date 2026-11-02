@@ -1,4 +1,3 @@
-import getpass
 import re
 import shlex
 import sys
@@ -273,7 +272,7 @@ def get_connection_params() -> tuple[str, int, str, str]:
     host = input("IP-адрес контроллера [192.168.1.100]: ").strip() or "192.168.1.100"
     port = int(input("Порт SSH [22]: ").strip() or "22")
     username = input("Пользователь [root]: ").strip() or "root"
-    password = getpass.getpass("Пароль: ")
+    password = input("Пароль: ")
     return host, port, username, password
 
 
