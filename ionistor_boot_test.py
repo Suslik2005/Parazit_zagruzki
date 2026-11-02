@@ -50,12 +50,16 @@ MONTHS = {
 }
 
 
+DIRECT_BOOT_LOGS = {"debug", "kern.log"}
+
+
 @dataclass
 class BootEvent:
     log_name: str
     line_number: int
     line: str
     timestamp: datetime | None
+    direct: bool = True
 
 
 def parse_log_timestamp(line: str, reference: datetime) -> datetime | None:
@@ -107,6 +111,7 @@ def find_boot_events(logs: dict[str, str], reference: datetime) -> list[BootEven
                     line_number=line_number,
                     line=line.strip(),
                     timestamp=parse_log_timestamp(line, reference),
+                    direct=log_name in DIRECT_BOOT_LOGS,
                 ))
     return events
 
@@ -117,13 +122,15 @@ def classify_events(
     power_on: datetime,
     current_boot: datetime,
 ) -> tuple[list[BootEvent], list[BootEvent], list[BootEvent]]:
-    """Возвращает нарушения, события текущей загрузки и строки без даты."""
+    """Нарушения создают только прямые признаки запуска ядра и питания."""
     violations = []
     current_events = []
     undated = []
     current_boot_start = current_boot - CURRENT_BOOT_TOLERANCE
 
     for event in events:
+        if not event.direct:
+            continue
         if event.timestamp is None:
             undated.append(event)
         elif event.timestamp >= current_boot_start:

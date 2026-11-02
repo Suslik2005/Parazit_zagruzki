@@ -86,6 +86,24 @@ class PatternTests(unittest.TestCase):
         events = find_boot_events(logs, datetime(2026, 11, 2, 17, 0, 0))
         self.assertEqual(len(events), 1)
         self.assertEqual(events[0].timestamp, datetime(2026, 11, 2, 16, 30, 15))
+        self.assertTrue(events[0].direct)
+
+    def test_connmand_newlink_is_not_boot_evidence(self):
+        logs = {
+            "syslog": "2026-11-02T16:30:15.770 connmand[1074]: can0 {newlink} index 2 operstate 6 <UP>"
+        }
+        events = find_boot_events(logs, datetime(2026, 11, 2, 17, 0, 0))
+        self.assertEqual(len(events), 1)
+        self.assertFalse(events[0].direct)
+        violations, current, undated = classify_events(
+            events,
+            datetime(2026, 11, 2, 16, 0, 0),
+            datetime(2026, 11, 2, 16, 35, 0),
+            datetime(2026, 11, 2, 16, 35, 2),
+        )
+        self.assertEqual(violations, [])
+        self.assertEqual(current, [])
+        self.assertEqual(undated, [])
 
 
 class PermissionTests(unittest.TestCase):
