@@ -1,8 +1,10 @@
 import unittest
 from datetime import datetime
+from unittest.mock import Mock
 
 from ionistor_boot_test import (
     BootEvent,
+    ControllerSSH,
     classify_events,
     find_boot_events,
     parse_log_timestamp,
@@ -84,6 +86,30 @@ class PatternTests(unittest.TestCase):
         events = find_boot_events(logs, datetime(2026, 11, 2, 17, 0, 0))
         self.assertEqual(len(events), 1)
         self.assertEqual(events[0].timestamp, datetime(2026, 11, 2, 16, 30, 15))
+
+
+class PermissionTests(unittest.TestCase):
+    def setUp(self):
+        self.ssh = ControllerSSH("192.168.1.100", 22, "root1", "secret")
+
+    def test_password_sudo_is_used_after_permission_denied(self):
+        self.ssh.execute = Mock(side_effect=[
+            (1, "", "cat: /var/log/kern.log: Permission denied"),
+            (1, "", "sudo: a password is required"),
+            (0, "kernel log", ""),
+        ])
+        status, output, _ = self.ssh._read_file("/var/log/kern.log")
+        self.assertEqual(status, 0)
+        self.assertEqual(output, "kernel log")
+        self.assertEqual(
+            self.ssh.execute.call_args.kwargs["input_data"], "secret\n"
+        )
+
+    def test_missing_file_does_not_trigger_sudo(self):
+        self.ssh.execute = Mock(return_value=(1, "", "No such file or directory"))
+        status, _, _ = self.ssh._read_file("/var/log/missing.log")
+        self.assertEqual(status, 1)
+        self.ssh.execute.assert_called_once()
 
 
 if __name__ == "__main__":

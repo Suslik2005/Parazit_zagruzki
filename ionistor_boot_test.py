@@ -164,14 +164,38 @@ class ControllerSSH:
             self.client.close()
             self.client = None
 
-    def execute(self, command: str, timeout: int = 30) -> tuple[int, str, str]:
+    def execute(
+        self, command: str, timeout: int = 30, input_data: str | None = None
+    ) -> tuple[int, str, str]:
         if self.client is None:
             raise RuntimeError("SSH не подключён")
-        _, stdout, stderr = self.client.exec_command(command, timeout=timeout)
+        stdin, stdout, stderr = self.client.exec_command(command, timeout=timeout)
+        if input_data is not None:
+            stdin.write(input_data)
+            stdin.flush()
+            stdin.channel.shutdown_write()
         output = stdout.read().decode("utf-8", errors="replace")
         error = stderr.read().decode("utf-8", errors="replace")
         status = stdout.channel.recv_exit_status()
         return status, output, error
+
+    def _read_file(self, remote_path: str) -> tuple[int, str, str]:
+        quoted_path = shlex.quote(remote_path)
+        status, output, error = self.execute(f"cat -- {quoted_path}")
+        permission_denied = (
+            "permission denied" in error.lower() or "отказано в доступе" in error.lower()
+        )
+        if status == 0 or not permission_denied:
+            return status, output, error
+
+        status, output, error = self.execute(f"sudo -n cat -- {quoted_path}")
+        if status == 0:
+            return status, output, error
+
+        return self.execute(
+            f"sudo -S -p '' cat -- {quoted_path}",
+            input_data=f"{self.password}\n",
+        )
 
     def read_logs(self, destination: Path) -> tuple[dict[str, str], list[str]]:
         destination.mkdir(parents=True, exist_ok=True)
@@ -180,7 +204,7 @@ class ControllerSSH:
 
         for log_name in BOOT_PATTERNS:
             remote_path = f"{LOG_DIR}/{log_name}"
-            status, output, error = self.execute(f"cat -- {shlex.quote(remote_path)}")
+            status, output, error = self._read_file(remote_path)
             if status == 0:
                 logs[log_name] = output
                 (destination / log_name).write_text(output, encoding="utf-8")
