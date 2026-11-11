@@ -54,6 +54,9 @@ OVERFLOW_PATTERNS = [
 ISO_TIMESTAMP = re.compile(
     r"^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:[.,]\d+)?(?:Z|[+-]\d{2}:?\d{2})?"
 )
+ABAK_TIMESTAMP = re.compile(
+    r"^\d{2}\.\d{2}\.\d{4} \d{2}:\d{2}:\d{2}(?:[.,]\d+)?"
+)
 
 
 @dataclass
@@ -134,21 +137,30 @@ class ControllerSSH:
 def parse_timestamp(line: str) -> float | None:
     """Возвращает время для расчёта частоты. Не смешивает время разных файлов."""
     match = ISO_TIMESTAMP.match(line)
-    if not match:
-        return None
-    try:
-        value = match.group(0).replace(",", ".").replace("Z", "+00:00")
-        parsed = datetime.fromisoformat(value)
-        if parsed.tzinfo is None:
-            parsed = parsed.replace(tzinfo=timezone.utc)
-        return parsed.timestamp()
-    except ValueError:
-        return None
+    if match:
+        try:
+            value = match.group(0).replace(",", ".").replace("Z", "+00:00")
+            parsed = datetime.fromisoformat(value)
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            return parsed.timestamp()
+        except ValueError:
+            return None
+
+    match = ABAK_TIMESTAMP.match(line)
+    if match:
+        value = match.group(0).replace(",", ".")
+        for date_format in ("%d.%m.%Y %H:%M:%S.%f", "%d.%m.%Y %H:%M:%S"):
+            try:
+                return datetime.strptime(value, date_format).replace(tzinfo=timezone.utc).timestamp()
+            except ValueError:
+                pass
+    return None
 
 
 def normalize_message(line: str) -> str:
     """Убирает метки времени, PID и числа, чтобы найти повторяющийся текст."""
-    message = ISO_TIMESTAMP.sub("", line, count=1).strip()
+    message = ABAK_TIMESTAMP.sub("", ISO_TIMESTAMP.sub("", line, count=1), count=1).strip()
     message = re.sub(r"^[A-Z][a-z]{2}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}\s+\S+\s+", "", message)
     message = re.sub(r"\[\s*\d+(?:\.\d+)?\]", "[]", message)
     message = re.sub(r"\[PID=\d+\]|\[\d+\]", "[]", message)

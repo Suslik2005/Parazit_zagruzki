@@ -7,6 +7,7 @@ from log_spam_test import (
     analyze_log,
     find_spam,
     normalize_message,
+    parse_timestamp,
 )
 
 
@@ -69,6 +70,11 @@ class SpamTests(unittest.TestCase):
         findings, _ = find_spam(repeated + other)
         self.assertEqual(len(findings), 1)
         self.assertIn("файла", findings[0].reasons[0])
+
+    def test_abak_timestamp_is_parsed_and_removed(self):
+        line = "02.11.2026 12:43:26.226 -- Store file: /tmp/test"
+        self.assertIsNotNone(parse_timestamp(line))
+        self.assertEqual(normalize_message(line), "-- Store file: /tmp/test")
 
     def test_normalization_ignores_timestamp_pid_and_numbers(self):
         first = normalize_message("2026-11-11T13:00:00.000 service[123]: error 45 code 0x10")
