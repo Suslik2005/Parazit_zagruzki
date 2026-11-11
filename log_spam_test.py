@@ -12,6 +12,7 @@ import paramiko
 # Настройки автотеста. Изменяйте под нормальную нагрузку контроллера.
 MAX_FILE_SIZE_MB = 100
 SPAM_TOTAL_COUNT = 100
+SPAM_TOTAL_RATIO = 0.20
 SPAM_BURST_COUNT = 20
 SPAM_BURST_WINDOW_SECONDS = 60
 REMOTE_LOG_DIR = "/var/log"
@@ -185,11 +186,14 @@ def find_spam(content: str) -> tuple[list[SpamFinding], list[tuple[int, str]]]:
             timestamps[normalized].append(timestamp)
 
     findings = []
+    total_lines = sum(counts.values())
     for normalized, count in counts.items():
         burst = _max_burst(timestamps[normalized])
         reasons = []
         if count >= SPAM_TOTAL_COUNT and not timestamps[normalized]:
             reasons.append(f"{count} повторов без меток времени")
+        elif count >= SPAM_TOTAL_COUNT and count / total_lines >= SPAM_TOTAL_RATIO:
+            reasons.append(f"{count} повторов ({count / total_lines:.0%} файла)")
         if burst >= SPAM_BURST_COUNT:
             reasons.append(f"{burst} повторов за {SPAM_BURST_WINDOW_SECONDS} с")
         if reasons:
@@ -235,6 +239,20 @@ def find_remote_log(ssh: ControllerSSH, spec: LogSpec) -> tuple[str, int, str]:
             return path, int(output.strip()), ""
         if status != 3:
             return "", 0, f"{path}: {error.strip() or 'ошибка проверки файла'}"
+
+        find_command = (
+            f"find {shlex.quote(REMOTE_LOG_DIR)} -maxdepth 3 -type f "
+            f"-name {shlex.quote(candidate)} -print -quit"
+        )
+        status, output, error = ssh.execute(find_command)
+        if status != 0:
+            return "", 0, f"поиск {candidate}: {error.strip() or 'ошибка поиска'}"
+        if output.strip():
+            path = output.strip().splitlines()[0]
+            status, output, error = ssh.execute(f"stat -c '%s' -- {shlex.quote(path)}")
+            if status == 0:
+                return path, int(output.strip()), ""
+            return "", 0, f"{path}: {error.strip() or 'ошибка проверки файла'}"
     return "", 0, f"файл не найден: {', '.join(spec.candidates)}"
 
 
@@ -242,6 +260,12 @@ def collect_and_analyze(ssh: ControllerSSH, run_dir: Path) -> list[LogResult]:
     results = []
     raw_dir = run_dir / "raw"
     raw_dir.mkdir(parents=True, exist_ok=True)
+
+    status, listing, listing_error = ssh.execute(
+        f"find {shlex.quote(REMOTE_LOG_DIR)} -maxdepth 3 -type f -printf '%P\\n' | sort"
+    )
+    listing_content = listing if status == 0 else f"Ошибка получения списка: {listing_error}"
+    (run_dir / "var_log_files.txt").write_text(listing_content, encoding="utf-8")
 
     for spec in LOG_SPECS:
         result = LogResult(spec.name)
@@ -270,7 +294,7 @@ def collect_and_analyze(ssh: ControllerSSH, run_dir: Path) -> list[LogResult]:
         print(f"{spec.name:<15} {status_text:<16} строк: {result.line_count:<8} размер: {size} байт")
         if result.read_error:
             print(f"  ВНИМАНИЕ: {result.read_error}")
-            print("  Пришлите это сообщение для исправления имени файла или прав доступа.")
+            print("  Пришлите это сообщение и файл var_log_files.txt для исправления.")
         results.append(result)
     return results
 
@@ -284,7 +308,7 @@ def save_report(run_dir: Path, host: str, username: str, results: list[LogResult
         f"Пользователь SSH: {username}",
         "runtime_log/codesyscontrol: время в файле указано по UTC",
         f"Пороги: {SPAM_BURST_COUNT} повторов/{SPAM_BURST_WINDOW_SECONDS} с; "
-        f"{SPAM_TOTAL_COUNT} повторов без меток времени; {MAX_FILE_SIZE_MB} МБ",
+        f"{SPAM_TOTAL_COUNT} повторов без меток или от {SPAM_TOTAL_RATIO:.0%} файла; {MAX_FILE_SIZE_MB} МБ",
         f"ИТОГ: {overall}",
         "",
     ]
@@ -344,6 +368,8 @@ def main() -> int:
         for result in results:
             for issue in result.issues:
                 print(f"- {result.requested_name}: {issue}")
+            for finding in result.spam:
+                print(f"  Пример ({finding.count} повторов): {finding.example}")
         print(f"Отчёт и логи: {run_dir}")
         return exit_code
     except Exception as exc:

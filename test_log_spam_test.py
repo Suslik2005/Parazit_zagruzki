@@ -59,8 +59,16 @@ class SpamTests(unittest.TestCase):
             lines.append(
                 f"2026-11-11T{hour:02d}:{minute:02d}:{second:02d}.000 service: periodic message"
             )
+        lines.extend(f"unique message {'x' * (index + 1)}" for index in range(900))
         findings, _ = find_spam("\n".join(lines))
         self.assertEqual(findings, [])
+
+    def test_dominant_timestamped_repeats_are_spam(self):
+        repeated = "2026-11-11T13:00:00.000 service: repeated warning\n" * 100
+        other = "\n".join(f"unique {'x' * (index + 1)}" for index in range(400))
+        findings, _ = find_spam(repeated + other)
+        self.assertEqual(len(findings), 1)
+        self.assertIn("файла", findings[0].reasons[0])
 
     def test_normalization_ignores_timestamp_pid_and_numbers(self):
         first = normalize_message("2026-11-11T13:00:00.000 service[123]: error 45 code 0x10")
