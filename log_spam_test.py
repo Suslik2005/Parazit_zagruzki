@@ -268,6 +268,9 @@ def collect_and_analyze(ssh: ControllerSSH, run_dir: Path) -> list[LogResult]:
         else:
             status_text = "OK"
         print(f"{spec.name:<15} {status_text:<16} строк: {result.line_count:<8} размер: {size} байт")
+        if result.read_error:
+            print(f"  ВНИМАНИЕ: {result.read_error}")
+            print("  Пришлите это сообщение для исправления имени файла или прав доступа.")
         results.append(result)
     return results
 
