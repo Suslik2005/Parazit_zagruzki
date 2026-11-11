@@ -27,7 +27,7 @@ class LogSpec:
 
 LOG_SPECS = [
     LogSpec("abak_power", ("abak_power", "abak_power.log")),
-    LogSpec("abak_io", ("abak_io", "abak_io.log")),
+    LogSpec("abak_io", ("abakbbb_io", "abakbbb_io.log", "abak_io", "abak_io.log")),
     LogSpec("canmanager", ("canmanager", "canmanager.log")),
     LogSpec("runtime_log", ("runtime_log", "codesyscontrol", "runtime_log.log", "codesyscontrol.log"), utc=True),
     LogSpec("syslog", ("syslog",)),
